@@ -5,7 +5,7 @@ const html=fs.readFileSync(require('node:path').join(__dirname,'../dist/index.ht
 const script=[...html.matchAll(/<script(?: [^>]*)?>([\s\S]*?)<\/script>/g)].at(-1)[1];
 new vm.Script(script); // Parse the entire application, including UI handlers.
 const context=vm.createContext({structuredClone,Date,Set,Error});
-vm.runInContext(script.split('const embedded=')[0]+'\nglobalThis.core={initialState,validateState,validatePublication,publishNode,publicState,stats,escapeHtml};',context);
+vm.runInContext(script.split('const embedded=')[0]+'\nglobalThis.core={initialState,validateState,validatePublication,publishNode,publicState,stats,escapeHtml,projectGeo,mapLocations,GEO_VIEW};',context);
 const c=context.core;
 let count=0;
 function test(name,fn){fn();count++;console.log('PASS '+name);}
@@ -20,4 +20,8 @@ test('publishing empty content is rejected',()=>{const n=c.initialState().nodes[
 test('changing published group without republishing is rejected',()=>{const s=c.initialState(),n=s.nodes[0];n.teaching=true;n.group='一组';n.draft.title='标题';n.draft.text='内容';c.publishNode(n);n.group='二组';assert.throws(()=>c.validateState(s),/更新发布/);c.publishNode(n);assert(c.validateState(s));});
 test('history nodes remain when unpublished; withdrawn data stays private',()=>{const s=c.initialState(),n=s.nodes[0];n.teaching=true;n.group='一组';n.draft.title='secret-title';n.draft.text='secret-content';c.publishNode(n);n.published=null;assert.equal(c.stats(s).published,0);assert.equal(c.publicState(s).nodes.length,13);assert(!JSON.stringify(c.publicState(s)).includes('secret-content'));});
 test('user-provided strings are escaped for HTML',()=>{assert.equal(c.escapeHtml('<img onerror="x">&'), '&lt;img onerror=&quot;x&quot;&gt;&amp;');});
+test('geographic map preserves north/east directions',()=>{const p=c.projectGeo([110,34]),east=c.projectGeo([111,34]),north=c.projectGeo([110,35]);assert(east.x>p.x);assert.equal(east.y,p.y);assert.equal(north.x,p.x);assert(north.y<p.y);});
+test('100 km east and north use the same geographic scale',()=>{const lat=34.5,p=c.projectGeo([110,lat]),east=c.projectGeo([110+100/(111.32*Math.cos(lat*Math.PI/180)),lat]),north=c.projectGeo([110,lat+100/111.32]);const ratio=(p.y-north.y)/(east.x-p.x);assert(Math.abs(ratio-1)<.02);});
+test('all historical map points stay inside the visible canvas',()=>{const points=c.mapLocations(c.initialState().nodes);assert.equal(points.length,13);for(const p of points){assert(p.x>14&&p.x<c.GEO_VIEW.width-14,p.name);assert(p.y>12&&p.y<c.GEO_VIEW.height-22,p.name);}});
+test('map uses current geography without modifying saved group content',()=>{const s=c.initialState();s.nodes[0].x=-900;s.nodes[0].y=-900;s.nodes[0].draft.text='已经保存的创作';s.nodes.push({id:'custom-unlocated',x:10,y:10,draft:{text:'课堂内容'}});const before=JSON.stringify(s),points=c.mapLocations(s.nodes);assert(points[0].x>0&&points[0].y>0);assert(!points.some(n=>n.id==='custom-unlocated'));assert.equal(JSON.stringify(s),before);});
 console.log(`${count} checks passed.`);
