@@ -5,7 +5,8 @@ const html=fs.readFileSync(require('node:path').join(__dirname,'../dist/index.ht
 const script=[...html.matchAll(/<script(?: [^>]*)?>([\s\S]*?)<\/script>/g)].at(-1)[1];
 new vm.Script(script); // Parse the entire application, including UI handlers.
 const context=vm.createContext({structuredClone,Date,Set,Error});
-vm.runInContext(script.split('const embedded=')[0]+'\nglobalThis.core={initialState,validateState,validatePublication,publishNode,publicState,stats,escapeHtml,projectGeo,mapLocations,GEO_VIEW};',context);
+const mapSource=script.slice(script.indexOf('function mapHtml('),script.indexOf('function selectedHtml('));
+vm.runInContext(script.split('const embedded=')[0]+mapSource+'\nglobalThis.core={initialState,validateState,validatePublication,publishNode,publicState,stats,escapeHtml,projectGeo,mapLocations,mapHtml,GEO_VIEW};',context);
 const c=context.core;
 let count=0;
 function test(name,fn){fn();count++;console.log('PASS '+name);}
@@ -24,4 +25,5 @@ test('geographic map preserves north/east directions',()=>{const p=c.projectGeo(
 test('100 km east and north use the same geographic scale',()=>{const lat=34.5,p=c.projectGeo([110,lat]),east=c.projectGeo([110+100/(111.32*Math.cos(lat*Math.PI/180)),lat]),north=c.projectGeo([110,lat+100/111.32]);const ratio=(p.y-north.y)/(east.x-p.x);assert(Math.abs(ratio-1)<.02);});
 test('all historical map points stay inside the visible canvas',()=>{const points=c.mapLocations(c.initialState().nodes);assert.equal(points.length,13);for(const p of points){assert(p.x>14&&p.x<c.GEO_VIEW.width-14,p.name);assert(p.y>12&&p.y<c.GEO_VIEW.height-22,p.name);}});
 test('map uses current geography without modifying saved group content',()=>{const s=c.initialState();s.nodes[0].x=-900;s.nodes[0].y=-900;s.nodes[0].draft.text='已经保存的创作';s.nodes.push({id:'custom-unlocated',x:10,y:10,draft:{text:'课堂内容'}});const before=JSON.stringify(s),points=c.mapLocations(s.nodes);assert(points[0].x>0&&points[0].y>0);assert(!points.some(n=>n.id==='custom-unlocated'));assert.equal(JSON.stringify(s),before);});
+test('projected map retains chronological node numbers and selection',()=>{const nodes=c.initialState().nodes,html=c.mapHtml(nodes,'yongping');for(let i=0;i<nodes.length;i++)assert(html.includes(`aria-label="${i+1} ${nodes[i].name}，`));assert(html.includes('class="pin active" data-select="yongping"'));nodes.splice(1,0,{id:'custom-unlocated'});assert(c.mapHtml(nodes,'hejiac').includes('aria-label="3 独树镇，'));});
 console.log(`${count} checks passed.`);
